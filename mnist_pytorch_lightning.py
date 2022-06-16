@@ -15,32 +15,26 @@ from torchmetrics import Accuracy
 from torchvision import transforms
 from torchvision.datasets import MNIST
 
-PATH_DATASETS = os.environ.get("PATH_DATASETS", ".")
-AVAIL_GPUS = min(0, torch.cuda.device_count())
-BATCH_SIZE = 256 if AVAIL_GPUS else 64
-
+params = {}
+params['data_path'] = "."
+params['AVAIL_GPUS'] = min(0, torch.cuda.device_count())
+params['batch_size'] = 64
+params['max_epoch'] = 4
+params['lr'] = 2e-4
 class LitMNIST(LightningModule):
-    def __init__(self, data_dir=PATH_DATASETS, hidden_size=64, learning_rate=2e-4):
-
+    def __init__(self, params):
         super().__init__()
 
-        # Set our init args as class attributes
-        self.data_dir = data_dir
-        self.hidden_size = hidden_size
-        self.learning_rate = learning_rate
+        self.params = params
 
-        # Hardcode some dataset specific attributes
-        self.num_classes = 10
-        self.dims = (1, 28, 28)
-        channels, width, height = self.dims
-        self.transform = transforms.Compose(
-            [
-                transforms.ToTensor(),
-                transforms.Normalize((0.1307,), (0.3081,)),
-            ]
-        )
+        # Hardcoded parameters
+        hidden_size = 64
+        num_classes = 10
+        channels, width, height = (1, 28, 28)
+        self.transform = transforms.Compose([transforms.ToTensor(),
+                                             transforms.Normalize((0.1307,), (0.3081,))])
 
-        # Define PyTorch model
+        # Define model
         self.model = nn.Sequential(
             nn.Flatten(),
             nn.Linear(channels * width * height, hidden_size),
@@ -49,7 +43,7 @@ class LitMNIST(LightningModule):
             nn.Linear(hidden_size, hidden_size),
             nn.ReLU(),
             nn.Dropout(0.1),
-            nn.Linear(hidden_size, self.num_classes),
+            nn.Linear(hidden_size, num_classes),
         )
 
         self.accuracy = Accuracy()
@@ -60,13 +54,14 @@ class LitMNIST(LightningModule):
 
     def training_step(self, batch, batch_idx):
         x, y = batch
-        logits = self(x)
+        logits = self(x) # equivalent to model(x) in pytorch
         loss = F.nll_loss(logits, y)
+        self.log("train_loss", loss, prog_bar=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
         x, y = batch
-        logits = self(x)
+        logits = self(x) # equivalent to model(x) in pytorch
         loss = F.nll_loss(logits, y)
         preds = torch.argmax(logits, dim=1)
         self.accuracy(preds, y)
@@ -81,7 +76,7 @@ class LitMNIST(LightningModule):
         return self.validation_step(batch, batch_idx)
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.params['lr'])
         return optimizer
 
     ####################
@@ -90,42 +85,41 @@ class LitMNIST(LightningModule):
 
     def prepare_data(self):
         # download
-        MNIST(self.data_dir, train=True, download=True)
-        MNIST(self.data_dir, train=False, download=True)
+        MNIST(self.params['data_path'], train=True, download=True)
+        MNIST(self.params['data_path'], train=False, download=True)
 
     def setup(self, stage=None):
 
         # Assign train/val datasets for use in dataloaders
         if stage == "fit" or stage is None:
-            mnist_full = MNIST(self.data_dir, train=True, transform=self.transform)
+            mnist_full = MNIST(self.params['data_path'], train=True, transform=self.transform)
             self.mnist_train, self.mnist_val = random_split(mnist_full, [55000, 5000])
 
         # Assign test dataset for use in dataloader(s)
         if stage == "test" or stage is None:
-            self.mnist_test = MNIST(self.data_dir, train=False, transform=self.transform)
+            self.mnist_test = MNIST(self.params['data_path'], train=False, transform=self.transform)
 
     def train_dataloader(self):
-        return DataLoader(self.mnist_train, batch_size=BATCH_SIZE)
+        return DataLoader(self.mnist_train, batch_size=params['batch_size'])
 
     def val_dataloader(self):
-        return DataLoader(self.mnist_val, batch_size=BATCH_SIZE)
+        return DataLoader(self.mnist_val, batch_size=params['batch_size'])
 
     def test_dataloader(self):
-        return DataLoader(self.mnist_test, batch_size=BATCH_SIZE)
+        return DataLoader(self.mnist_test, batch_size=params['batch_size'])
 
-# Init our model
-model = LitMNIST()
-
+# Initialize the model
+model = LitMNIST(params)
 
 # Initialize a trainer
 trainer = Trainer(
-    gpus=AVAIL_GPUS,
-    max_epochs=3,
+    gpus=params['AVAIL_GPUS'],
+    max_epochs=params['max_epoch'],
     progress_bar_refresh_rate=20,
 )
 
-# Train the model ⚡
+# Train the model
 trainer.fit(model)
 
-
+# Test the model
 trainer.test(model)
