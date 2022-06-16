@@ -1,0 +1,4 @@
+MNIST/
+lightning_logs/
+.ipynb_checkpoints/
+.ipynb/
