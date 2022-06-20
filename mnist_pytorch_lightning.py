@@ -21,6 +21,8 @@ params['AVAIL_GPUS'] = min(0, torch.cuda.device_count())
 params['batch_size'] = 64
 params['max_epoch'] = 4
 params['lr'] = 2e-4
+
+
 class LitMNIST(LightningModule):
     def __init__(self, params):
         super().__init__()
@@ -85,9 +87,6 @@ class MNISTDataModule(LightningDataModule):
         self.params = params
         self.transform = transforms.Compose([transforms.ToTensor(),
                                              transforms.Normalize((0.1307,), (0.3081,))])
-
-        
-
         
     def prepare_data(self):
         # download
@@ -114,7 +113,8 @@ class MNISTDataModule(LightningDataModule):
     def test_dataloader(self):
         return DataLoader(self.mnist_test, batch_size=params['batch_size'])
 
-# Initialize the model
+
+# Initialize the model and datamodule
 model = LitMNIST(params)
 mnist = MNISTDataModule(params)
 # Initialize a trainer
@@ -126,7 +126,6 @@ trainer = Trainer(
 
 # Train the model
 trainer.fit(model, mnist)
-
 
 # Test the model
 trainer.test(model, mnist)
