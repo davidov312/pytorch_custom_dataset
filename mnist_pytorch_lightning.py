@@ -7,7 +7,7 @@
 
 import os
 import torch
-from pytorch_lightning import LightningModule, Trainer
+from pytorch_lightning import LightningModule, Trainer, LightningDataModule
 from torch import nn
 from torch.nn import functional as F
 from torch.utils.data import DataLoader, random_split
@@ -31,9 +31,7 @@ class LitMNIST(LightningModule):
         hidden_size = 64
         num_classes = 10
         channels, width, height = (1, 28, 28)
-        self.transform = transforms.Compose([transforms.ToTensor(),
-                                             transforms.Normalize((0.1307,), (0.3081,))])
-
+        
         # Define model
         self.model = nn.Sequential(
             nn.Flatten(),
@@ -79,10 +77,18 @@ class LitMNIST(LightningModule):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.params['lr'])
         return optimizer
 
-    ####################
-    # DATA RELATED HOOKS
-    ####################
 
+
+class MNISTDataModule(LightningDataModule):
+    def __init__(self, params):
+        super().__init__()
+        self.params = params
+        self.transform = transforms.Compose([transforms.ToTensor(),
+                                             transforms.Normalize((0.1307,), (0.3081,))])
+
+        
+
+        
     def prepare_data(self):
         # download
         MNIST(self.params['data_path'], train=True, download=True)
@@ -110,7 +116,7 @@ class LitMNIST(LightningModule):
 
 # Initialize the model
 model = LitMNIST(params)
-
+mnist = MNISTDataModule(params)
 # Initialize a trainer
 trainer = Trainer(
     gpus=params['AVAIL_GPUS'],
@@ -119,7 +125,8 @@ trainer = Trainer(
 )
 
 # Train the model
-trainer.fit(model)
+trainer.fit(model, mnist)
+
 
 # Test the model
-trainer.test(model)
+trainer.test(model, mnist)
