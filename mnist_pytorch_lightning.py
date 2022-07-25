@@ -7,19 +7,25 @@
 
 import os
 import torch
-from pytorch_lightning import LightningModule, Trainer, LightningDataModule
+from pytorch_lightning import LightningModule, Trainer, LightningDataModule, seed_everything
 from torch import nn
 from torch.nn import functional as F
 from torch.utils.data import DataLoader, random_split
 from torchmetrics import Accuracy
 from torchvision import transforms
 from torchvision.datasets import MNIST
+from pytorch_lightning.callbacks import ModelCheckpoint
+
+### Set seeds for reproductability
+seed_everything(0, workers=True) # seeds for torch, numpy, random
+# torch.use_deterministic_algorithms() 
+
 
 params = {}
 params['data_path'] = "."
 params['AVAIL_GPUS'] = min(0, torch.cuda.device_count())
 params['batch_size'] = 64
-params['max_epoch'] = 4
+params['max_epoch'] = 20
 params['lr'] = 2e-4
 
 
@@ -46,7 +52,8 @@ class LitMNIST(LightningModule):
             nn.Linear(hidden_size, num_classes),
         )
 
-        self.accuracy = Accuracy()
+        self.val_accuracy = Accuracy()
+        self.test_accuracy = Accuracy()
 
     def forward(self, x):
         x = self.model(x)
@@ -64,16 +71,24 @@ class LitMNIST(LightningModule):
         logits = self(x) # equivalent to model(x) in pytorch
         loss = F.nll_loss(logits, y)
         preds = torch.argmax(logits, dim=1)
-        self.accuracy(preds, y)
+        self.val_accuracy(preds, y)
 
         # Calling self.log will surface up scalars for you in TensorBoard
         self.log("val_loss", loss, prog_bar=True)
-        self.log("val_acc", self.accuracy, prog_bar=True)
+        self.log("val_acc", self.val_accuracy, prog_bar=True)
         return loss
 
     def test_step(self, batch, batch_idx):
-        # Here we just reuse the validation_step for testing
-        return self.validation_step(batch, batch_idx)
+        x, y = batch
+        logits = self(x) # equivalent to model(x) in pytorch
+        loss = F.nll_loss(logits, y)
+        preds = torch.argmax(logits, dim=1)
+        self.test_accuracy(preds, y)
+
+        # Calling self.log will surface up scalars for you in TensorBoard
+        self.log("test_loss", loss, prog_bar=True)
+        self.log("test_acc", self.test_accuracy, prog_bar=True)
+        return loss
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.params['lr'])
@@ -88,7 +103,7 @@ class MNISTDataModule(LightningDataModule):
         self.transform = transforms.Compose([transforms.ToTensor(),
                                              transforms.Normalize((0.1307,), (0.3081,))])
         
-    def prepare_data(self):
+    def prepare_data(self): # single core processing
         # download
         MNIST(self.params['data_path'], train=True, download=True)
         MNIST(self.params['data_path'], train=False, download=True)
@@ -114,18 +129,29 @@ class MNISTDataModule(LightningDataModule):
         return DataLoader(self.mnist_test, batch_size=params['batch_size'])
 
 
-# Initialize the model and datamodule
-model = LitMNIST(params)
-mnist = MNISTDataModule(params)
-# Initialize a trainer
-trainer = Trainer(
-    gpus=params['AVAIL_GPUS'],
-    max_epochs=params['max_epoch'],
-    progress_bar_refresh_rate=20,
-)
+if __name__ == "__main__":
+    # Initialize the model and datamodule
+    model = LitMNIST(params)
+    mnist_data_module = MNISTDataModule(params)
+    checkpoint_callback = ModelCheckpoint(monitor="val_acc", mode="max")
+    # Initialize a trainer
+    trainer = Trainer(
+        callbacks=[checkpoint_callback],
+        deterministic=True,
+        gpus=params['AVAIL_GPUS'],
+        max_epochs=params['max_epoch'],
+        progress_bar_refresh_rate=20,
+    )
 
-# Train the model
-trainer.fit(model, mnist)
+    # Train the model
+    trainer.fit(model, mnist_data_module)
 
-# Test the model
-trainer.test(model, mnist)
+    # Test the model
+    trainer.test(model, mnist_data_module)
+
+    print('Done training and evaluating MNIST')
+
+    ### View results in tensorboard:  ######
+    # in cmd: activate environment
+    # in cmd: tensorboard --logdir=lightning_logs --port=6006 
+    # in the web browser: localhost:6006
